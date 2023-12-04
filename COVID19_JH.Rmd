@@ -1,0 +1,218 @@
+---
+title: "COVID 19 John Hopkins"
+author: "Colin H."
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Outline
+
+## Introduction
+
+### Project Objective
+
+```         
+- The aim here is to analyze and describe the data provided. Furthermore, this will be a basic linear regression analysis plotting cases against deaths. 
+-NOTE: For the sake of readability, I have not included the descriptions for each dataset. However, I have included in a textual format how and what I included and removed. 
+```
+
+### Data Source and Description
+
+```         
+- In regards to the data, I will utilize the global dataset. TODO: However, I have maintained the different versions 
+- COVID19 dataset from the Johns Hopkins Github site.
+    - [https://github.com/CSSEGISandData/COVID-19](https://github.com/CSSEGISandData/COVID-19)
+- This includes a complete list of all reported COVID information from the sources used in the data set, since January 21, 2020 until March 10, 2023, when Johns Hopkins ceased its collecting and reporting of global COVID-19 data.
+```
+
+<https://github.com/CSSEGISandData/COVID-19>
+
+## Libraries
+
+```{r, message=FALSE }
+library(tidyverse)
+```
+
+## Including Data sets
+
+```{r Datasets , message=FALSE}
+url_in <-
+"https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c("time_series_covid19_confirmed_global.csv",
+"time_series_covid19_deaths_global.csv")
+urls <- str_c(url_in, file_names)
+```
+
+## Reading in Data
+
+```{r Read, message= FALSE}
+
+global_cases <- read_csv(urls[1])
+global_deaths <- read_csv(urls[2])
+```
+
+## Pre-Process/Tidy
+
+There are a few columns, I will get rid of. TODO: Which columns do I not need?
+```{r Preprocess, message=FALSE}
+global_cases <- global_cases %>%
+  pivot_longer(cols = -c("Province/State", "Country/Region", "Lat", 'Long'),
+               #date is chr instead of date object
+               names_to = "date",
+               values_to = "cases") %>%
+  select(-c(Lat, Long))
+
+global_deaths <- global_deaths %>%
+  pivot_longer(cols = -c("Province/State", "Country/Region", "Lat", 'Long'),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(Lat, Long))
+
+#join cases with deaths
+global <- global_cases %>%
+  #TODO: yes or no 
+  #filter(cases > 0) %>%
+  full_join(global_deaths) %>%
+  rename(Country_Region = `Country/Region`,
+         Province_State = `Province/State`) %>%
+  mutate(date = mdy(date))
+
+#is this part necessary? 
+global <- global %>%
+  unite("Combined_Key",
+        c(Province_State, Country_Region),
+        sep = ", ",
+        na.rm = TRUE,
+        remove = FALSE)
+
+#TODO UID Lookup for Comparative analysis 
+uid_lookup_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+uid <- read_csv(uid_lookup_url) %>%
+  select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+
+#TODO:refactor based on 6:30 of Tidying video
+global <- global %>%
+  #joins Country Region to Province/State
+  left_join(uid, by = c("Province_State", "Country_Region" )) %>%
+  select(-c(UID, FIPS)) %>%
+  select(Province_State, Country_Region, date, cases, deaths, Population, Combined_Key )
+```
+
+```{r}
+#TODO ensure each province is properly added to total; similar to US counties
+global_by_country <- global%>%
+  group_by(Province_State, Country_Region, Combined_Key, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), 
+            Population = sum(Population)) %>%
+  mutate(cases_per_mill = cases * 1000000 / Population) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population) %>%
+  select(Province_State, Country_Region, date, cases, deaths, cases_per_mill, deaths_per_mill, Population) %>%
+  ungroup()
+
+global_totals <- global_by_country%>%
+  group_by(Province_State, Country_Region, Combined_Key, date) %>%
+  summarize(cases = max(cases), deaths = max(deaths), 
+            Population = max(Population)) %>%
+  mutate(cases_per_mill = cases * 1000000 / Population) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population) %>%
+  select(Province_State, Country_Region, date, cases, deaths, cases_per_mill, deaths_per_mill, Population) %>%
+  ungroup()
+
+global_totals <- global_totals %>%
+  filter(cases > 0, Population > 0)
+```
+
+## EDA & Visualization
+
+```{r Global EDA}
+
+#TODO Enter new Cases
+global_totals <- global_totals %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+
+#TODO: Determine if or not to have specific country.... Sweden? 
+country = 'Sweden'
+
+global_totals %>%
+  #filter(Province_State == state) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "Cases"), size = 1) +
+  geom_point(aes(color = "Cases"), size = 2) +
+  geom_line(aes(y = new_deaths, color = "Deaths"), size = 1, linetype = "dashed") +
+  geom_point(aes(y = new_deaths, color = "Deaths"), size = 2, shape = 16) +
+  scale_y_log10() +
+  labs(title = "Cases vs Deaths Over Time",
+       x = "Date",
+       y = "Count",
+       color = "Legend") +
+  scale_color_manual(name = "Legend",
+                     values = c("Cases" = "blue", "Deaths" = "grey"),
+                     labels = c("Cases", "Deaths")) +
+  theme_minimal()
+
+max(global$date) #max(global$cases)
+
+tail(global_totals %>% select(new_cases, new_deaths, everything()))
+
+#TODO updated Slice min/max
+global_totals %>%
+  slice_min(deaths_per_mill, n = 10) %>%
+  slice_max(deaths_per_mill, n = 10) %>%
+select(deaths_per_mill, cases_per_mill, everything())
+
+```
+
+## Model
+
+```{r, Global Model}
+
+# Fit linear regression model
+model <- lm(deaths_per_mill ~ cases_per_mill, data = global_totals)
+
+pred = predict(model, type = "response")
+
+# Assuming global_totals is your original data frame
+global_tot_w_pred <- global_totals %>%
+  mutate(pred)
+
+# Refactored visualization using ggplot
+ggplot(global_tot_w_pred, aes(x = cases_per_mill, y = deaths_per_mill)) +
+  geom_point(color = "blue") +
+  geom_point(aes(y = pred), color = "red") +
+  labs(title = "Linear Regression Model Results",
+       x = "Cases per Million",
+       y = "Deaths per Million")
+
+```
+
+## Metrics
+
+```{r Metrics}
+#TODO: Enter REgression Metrics like MSE results 
+```
+
+## Communication of Results
+
+-   Interpreting the Model Output
+-   Key Insights and Findings
+
+## Bias/Conclusion
+
+-   Summary of Findings
+    -   TODO: Explain what had happened
+-   Limitations [Bias]
+    -   There is Bias towards under reporting of cases
+    -   However, there is potentially overeporting of deaths What gets included as a death? Is someone dying from COVid or with COVID?
+    -   My bias is pointed towards how I feel about Covid
+-   Further Research = TODO: What would I like to see or to know?
+    -   There would be interesting
+
+## Appendix [Session Info ]
+
+TODO: Sources to be placed here?
+
+```{r}
+sessionInfo()
+```
