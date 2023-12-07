@@ -1,0 +1,225 @@
+---
+title: "NYPD Shooting Data"
+author: "Colin H."
+date: "2023-11-15"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Thesis 
+
+The aim of this is to inference from the information available. This is not a a predictive nor a prescriptive model. Instead, it is a **descriptive** model to illustrate the short-term and long-term changes of the Incidences fitted to an adapted model. Then, these changes are further illustrated afterwards to provide an additional extension.
+
+NOTE: This is not a conventional Time Series, nevertheless it is still a means to explore and visualize.
+
+#1.  Visualize
+
+## Read Data and Import Libraries
+
+Below are all the necessary libraries
+
+```{r READ}
+initial_data <- read.csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(factoextra)
+```
+
+```{r}
+# List of packages to check; prevents auto install
+packages_to_check <- c("dplyr", "ggplot2", "tidyr", "factoextra")
+
+for (package in packages_to_check) {
+  if (!requireNamespace(package, quietly = TRUE)) {
+    cat(paste("Package", package, "is not installed. Please install it using:\n"))
+    cat(paste("install.packages(\"", package, "\")\n\n"))
+  } else {
+    cat(paste("Package", package, "is installed.\n\n"))
+  }
+}
+```
+
+# Pre-processing
+
+From here, the data reduces to a dataframe with 'OCCUR_DATE' & 'Incident_Count'. Time stamps are formatted according to **Date of Occurrence.**
+
+```{r}
+# Convert OCCUR_DATE to U.S. Standard Format 
+initial_data$OCCUR_DATE <- as.Date(initial_data$OCCUR_DATE, format = "%m/%d/%Y")
+
+# Time analysis - Count incidents by date
+time_formatted_data <- initial_data %>%
+  group_by(OCCUR_DATE) %>%
+  summarise(Incident_Count = n())
+```
+
+## Exploratory Visualization
+
+Let's plot Incident_Count as function of OCCUR_DATE (Time) with several different visualizations to see what is the most informative/helpful
+
+```{r}
+#Begin LINE Plot 
+ggplot(time_formatted_data, aes(x = OCCUR_DATE, y = Incident_Count)) +
+  geom_line(color = "grey") +
+  labs(title = "New York Shootings",
+       x = "Date",
+       y = "Number of Shootings") +
+  theme_minimal() 
+
+# Bar plot: Aggregating over specific time intervals
+bar_plot <- ggplot(time_formatted_data, aes(x = format(OCCUR_DATE, "%Y-%m"), y = Incident_Count)) +
+  geom_bar(stat = 'identity', fill = 'grey') +
+  labs(title = "Bar Plot - Aggregating Over Monthly Intervals",
+       x = "Month-Year",
+       y = "Incident Count") +
+  theme_minimal()
+
+# Box plot: Visualizing the distribution of values within specific time periods
+box_plot <- ggplot(time_formatted_data, aes(x = format(OCCUR_DATE, "%Y"), y = Incident_Count)) +
+  geom_boxplot(fill = 'grey', alpha = 0.7) +
+  labs(title = "Box Plot - Distribution Within Years",
+       x = "Year",
+       y = "Incident Count") +
+  theme_minimal()
+
+print(bar_plot)
+print(box_plot)
+
+```
+
+#2.  Analyze
+
+Where are some of the biggest patterns?
+
+## Short-Term:
+
+There is clear seasonality. For example, in summer the incident count is significantly higher, where it is nearly double that of Winter.
+
+```{r}
+# Convert OCCUR_DATE to U.S. Standard Format
+initial_data <- initial_data %>%
+  mutate(OCCUR_DATE = as.Date(OCCUR_DATE, format = "%m/%d/%Y"))
+
+# Create a Season column indicating Winter or Summer
+initial_data <- initial_data %>%
+  mutate(Season = case_when(
+    as.numeric(format(OCCUR_DATE, "%m")) %in% c(12, 1, 2) ~ "Winter",
+    as.numeric(format(OCCUR_DATE, "%m")) %in% c(6, 7, 8) ~ "Summer",
+    as.numeric(format(OCCUR_DATE, "%m")) %in% c(3, 4, 5) ~ "Spring",
+    as.numeric(format(OCCUR_DATE, "%m")) %in% c(9, 10, 11) ~ "Fall",
+  ))
+# Group by Season and summarize incidents
+seasonal_summary <- initial_data %>%
+  group_by(Season) %>%
+  summarise(Total_Incidents = n())
+
+# Display the summarized data
+seasonal_summary
+```
+
+## Long-Term:
+
+Based on the information, there is dynamic movement, yet it moves in a long-term **cycle**. There does appear to be more than just seasonality, as a certain years have significantly more than others as shown by the table
+
+```{r}
+# Convert OCCUR_DATE to U.S. Standard Format
+initial_data <- initial_data %>%
+  mutate(OCCUR_DATE = as.Date(OCCUR_DATE, format = "%m/%d/%Y"))
+
+# Extract the year from OCCUR_DATE and summarize data for specific years
+year_summaries <- initial_data %>%
+  group_by(Year = format(OCCUR_DATE, "%Y")) %>%
+  summarise(Total_Incidents = n())
+
+# Display the summaries
+year_summaries
+```
+#3.  Model
+
+## Time Series Decomposition:
+
+Next, let's decompose the time series into trend, seasonality, and residuals.
+
+```{r}
+# Create time series from average incidence counts
+daily_time_series <- ts(time_formatted_data$Incident_Count, frequency = 365)
+
+
+decomposed_daily <- stl(daily_time_series, s.window = 7, t.window = 365, robust = TRUE)
+
+# Plot  decomposed components
+plot(decomposed_daily, main = "Decomposition of Daily Time Series")
+
+```
+
+## Zoom in on Seasonality; Trend
+The previous graphs are difficult to see well, so let's zoom in to capture the information better
+
+```{r}
+# Plot trend and seasonal 
+trend <- decomposed_daily$time.series[, "trend"]
+season <- decomposed_daily$time.series[, "seasonal"]
+```
+
+
+Let's fit these lines from the Time Series onto the Line Plot to visualize the updated model.
+
+```{r}
+# Plot the daily time series
+plot(daily_time_series, xlab = "Time (in Years)", ylab = "Incident Count", col = 'gray')
+
+# Overlay the trend component
+lines(decomposed_daily$time.series[, "trend"], col = "black")
+lines(decomposed_daily$time.series[, "seasonal"], col = "red")
+
+#Add legend and title to this plot
+legend("topright", legend = c("Original Time Series", "Trend", "Seasonal"), col = c("grey", "black", "red"), lty = 1:1)
+
+title(main = "Daily Time Series with Trend and Seasonal Overlay")
+```
+
+# Further Investigation...
+
+Based on available information, the trend seems to suggest seasonality, but it does not suggest overall increases or decreases when weighting and smoothing out the data. Nevertheless it would be interesting to investigate a longer time horizon to see what the trend has looked like over that period of time
+
+# Footnote: Bias
+
+This is a **biased** exploration, in the technical sense, based on the reduction of features; To elaborate further:
+
+-   **Variables**
+
+    The Time Series reduced a collection of 21 total features to just 2. There is potentially more informative information which can be further weighted to the end of producing a more
+
+-   **Timeline**
+
+    The information is subject to the collection periods, where it is is limited to a window of 16 years:
+
+    **1/1/2006 - 12/31/2022**
+
+    -   What would the **previous** data show?
+    -   What would the **future** data show?
+
+-   **Absence of Data**
+
+    -   How many murders never go reported?
+
+    -   How many were delayed in their discovery?
+
+    -   How long were the delays?
+
+    -   How would they influence the totals?
+
+## Personal Bias
+
+For this project, it is important to always consider my personal bias as well. Here, it was limited to the scope of parameters to employ. To further, this model **describes** the data; there hadn't been any predictive nor prescriptive analysis, which limits personal bias. There had neither been an analysis of race, sex, nor income discrimination in the descriptive analysis. 
+
+However,... as mentioned prior, the parameters and scaling I chose have reflected the way in which I chose to manipulate the data  and therefore reflect my personal bias to a certain degree, yet any further elaboration is excessively discriminative.
+
+# Appendix
+
+```{r}
+sessionInfo()
+```
