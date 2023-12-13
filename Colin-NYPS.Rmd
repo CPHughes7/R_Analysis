@@ -13,33 +13,19 @@ The aim of this is to inference from the information available. This is not a a 
 
 NOTE: This is not a conventional Time Series, nevertheless it is still a means to explore and visualize.
 
-#1.  Visualize
+# 1.  Visualize
 
 ## Read Data and Import Libraries
 
 Below are all the necessary libraries
 
-```{r READ}
+```{r READ, include=FALSE}
 initial_data <- read.csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
 
 library(ggplot2)
 library(dplyr)
 library(tidyr)
 library(factoextra)
-```
-
-```{r}
-# List of packages to check; prevents auto install
-packages_to_check <- c("dplyr", "ggplot2", "tidyr", "factoextra")
-
-for (package in packages_to_check) {
-  if (!requireNamespace(package, quietly = TRUE)) {
-    cat(paste("Package", package, "is not installed. Please install it using:\n"))
-    cat(paste("install.packages(\"", package, "\")\n\n"))
-  } else {
-    cat(paste("Package", package, "is installed.\n\n"))
-  }
-}
 ```
 
 # Pre-processing
@@ -61,36 +47,42 @@ time_formatted_data <- initial_data %>%
 Let's plot Incident_Count as function of OCCUR_DATE (Time) with several different visualizations to see what is the most informative/helpful
 
 ```{r}
-#Begin LINE Plot 
+#1. Begin LINE Plot 
 ggplot(time_formatted_data, aes(x = OCCUR_DATE, y = Incident_Count)) +
   geom_line(color = "grey") +
-  labs(title = "New York Shootings",
+  labs(title = "1. Line Plot; Aggregating over Years",
        x = "Date",
-       y = "Number of Shootings") +
-  theme_minimal() 
+       y = "Incident Count") +
+  theme_minimal()
+```
 
-# Bar plot: Aggregating over specific time intervals
+
+```{r}
+#2. Bar plot: Aggregating over specific time intervals
 bar_plot <- ggplot(time_formatted_data, aes(x = format(OCCUR_DATE, "%Y-%m"), y = Incident_Count)) +
   geom_bar(stat = 'identity', fill = 'grey') +
-  labs(title = "Bar Plot - Aggregating Over Monthly Intervals",
+  labs(title = "2. Bar Plot - Aggregating Over Monthly Intervals",
        x = "Month-Year",
        y = "Incident Count") +
   theme_minimal()
+print(bar_plot)
+```
 
-# Box plot: Visualizing the distribution of values within specific time periods
+
+```{r}
+#3 Box plot: Visualizing the distribution of values within specific time periods
 box_plot <- ggplot(time_formatted_data, aes(x = format(OCCUR_DATE, "%Y"), y = Incident_Count)) +
   geom_boxplot(fill = 'grey', alpha = 0.7) +
-  labs(title = "Box Plot - Distribution Within Years",
+  labs(title = "3. Box Plot - Distribution Within Years",
        x = "Year",
        y = "Incident Count") +
   theme_minimal()
 
-print(bar_plot)
 print(box_plot)
 
 ```
 
-#2.  Analyze
+# 2.  Analyze
 
 Where are some of the biggest patterns?
 
@@ -103,7 +95,7 @@ There is clear seasonality. For example, in summer the incident count is signifi
 initial_data <- initial_data %>%
   mutate(OCCUR_DATE = as.Date(OCCUR_DATE, format = "%m/%d/%Y"))
 
-# Create a Season column indicating Winter or Summer
+# Reduce to a Season column 
 initial_data <- initial_data %>%
   mutate(Season = case_when(
     as.numeric(format(OCCUR_DATE, "%m")) %in% c(12, 1, 2) ~ "Winter",
@@ -137,7 +129,7 @@ year_summaries <- initial_data %>%
 # Display the summaries
 year_summaries
 ```
-#3.  Model
+# 3.  Model
 
 ## Time Series Decomposition:
 
@@ -163,6 +155,7 @@ The previous graphs are difficult to see well, so let's zoom in to capture the i
 trend <- decomposed_daily$time.series[, "trend"]
 season <- decomposed_daily$time.series[, "seasonal"]
 ```
+
 
 
 Let's fit these lines from the Time Series onto the Line Plot to visualize the updated model.
